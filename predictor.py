@@ -18,69 +18,13 @@ Class that assists in getting the wordle.
 """
 class Predictor(object):
 
-    def __init__(self): 
-        self.valid = np.loadtxt("valid-wordle-words.txt", dtype = str) #valid words
-        self.guesses = [] #for storing data
-        self.rules = []
-        self.letter_counts = [None] * 26
+    def __init__(self, preload_rv = True): 
+        
+        #list of all 5-letter words
+        self.available = np.loadtxt("input/valid-wordle-words.txt", dtype = str) #fixed
+        self.valid = self.available.copy() #list which gets updated
 
-    """
-    Count of greens, yellows, and blacks for each letter in the most recent guess/rule
-    
-    Facts are indexed: [letter, green count, yellow count, black count]
-    """
-    def get_knowledge(self):
-        knowledge = [] #array of facts
-        for letter in set(self.guesses[len(self.guesses) - 1]): #each unique letter in guess
-                fact = [letter, 0, 0, 0]
-
-                for j in range(5): #looping through guess/rule
-                    if self.guesses[len(self.guesses) - 1][j] == letter:
-                        rule = self.rules[len(self.rules) - 1][j]
-                        fact[rule.value] += 1
-                        
-                knowledge.append(fact)
-        return knowledge
-    
-    """
-    Note that there are no 5 letter words with 4 of the same letter
-
-    Key:
-        None = no info on letter
-        0 = letter is not in word
-        1:3 = letter is exactly 1-3 times in word
-        -1 = letter appears 1+ time in word
-        -2 = letter appears 2+ times in word
-
-    Returns this number based on "fact"
-    """
-    def analyze_fact(self, fact):
-        if fact[1] == 0 and fact[2] == 0: #letter is only black
-            return 0
-        elif fact[3] > 0: #given there's a black and other colors
-            return fact[1] + fact[2]
-        elif (fact[1] + fact[2]) == 3: #max 3 of same letter
-            return 3
-        else:
-            return -(fact[1] + fact[2])
-            
-    """
-    Updates self.letter_counts to the most specific information known about each
-        letter's count in the word
-    """ 
-    def find_letter_counts(self):
-        knowledge = self.get_knowledge()
-
-        for fact in knowledge:
-            index = ord(fact[0]) - 97
-            if self.letter_counts[index] is None or self.letter_counts[index] < 0:
-                
-                val = self.analyze_fact(fact)
-                if self.letter_counts[index] is None or val < self.letter_counts[index]:
-                    self.letter_counts[index] = val
-        #return changes, to-do
-    
-    #how many occurences of letter are there in word
+    #how many occurences of letter are there in a word
     def single_letter_count(self, word, letter):
         count = 0
         for i in word:
@@ -88,61 +32,7 @@ class Predictor(object):
                 count += 1
         return count
     
-    #given knowledge of letter counts, checks if test_word satisfies
-    def check_letter_counts(self, test_word):
-        for letter in set(test_word):
-            count = self.single_letter_count(test_word, letter)
-            true_count = self.letter_counts[ord(letter) - 97]
-
-            if true_count is not None:
-                if true_count == 0: #letter not in solution
-                    return False
-                elif true_count > 0: #exact count known
-                    if count != true_count:
-                        return False
-                else: #minimum count known
-                    if true_count < -count:
-                        return False
-        return True
-
-    #checks if test_word satisfies our rule at the letter-index level
-    def check_letter_indices(self, test_word, guess, rule):
-        for i in range(5): #disprove if any letter contradicts
-                if rule[i] == Hint.GREEN:
-                    if guess[i] != test_word[i]:
-                        return False #assert letter in right position
-                else:
-                    if guess[i] == test_word[i]:
-                        return False #assert letter not in this position
-        return True
-
-    #given there is new guess/rule, updates list of valid words
-    def update_valid(self):
-        guess = self.guesses[len(self.guesses) - 1]
-        rule = self.rules[len(self.rules) - 1]
-        self.find_letter_counts()
-        # changes = ...
-
-        #loop through and update self.valid
-        valid_bool = []
-        for test_word in self.valid:
-            satisfies_counts = self.check_letter_counts(test_word)
-            satisfies_indices = self.check_letter_indices(test_word, guess, rule)
-            valid_bool.append(satisfies_counts and satisfies_indices)
-        self.valid = self.valid[valid_bool]
-
-    #add guess and rule, update self.valid; solution is unknown
-    def make_guess(self, guess, rule):
-        self.guesses.append(guess)
-        self.rules.append(rule)
-        self.update_valid()
-    
-    #add guess, calculate rule, and update self.valid; solution is known
-    def test_guess(self, guess, solution):
-        self.guesses.append(guess)
-        self.rules.append(self.calculate_rule(guess, solution))
-        self.update_valid()
-    
+    #convert string of five letters (g, y, or b) into a rule for ease of input
     def parse_rule(self, raw_rule):
         rule = []
         for i in raw_rule:
@@ -155,23 +45,11 @@ class Predictor(object):
             else:
                 raise Exception("Invalid input.")
         return rule
-    
-    def run_game_interface(self):
-        print("Welcome to Wordle Solving A.I. Interface.")
-
-        for i in range(6):
-            print("Please enter guess:")
-            guess = input()
-            print("Please input the given rule. Type it in as a 5 letter word (g, y, or b):")
-            raw_rule = input()
-            rule = self.parse_rule(raw_rule)
-            self.make_guess(guess, rule)
-            print(pd.DataFrame({"word": self.valid, "frequency": self.get_frequencies()}).sort_values("frequency", ascending=False))
 
     #returns the rule of a guess given the solution
     def calculate_rule(self, guess, solution):
         rule = [None] * 5
-        counts = [self.single_letter_count(solution, i) for i in ALPHABET]
+        counts_true = [self.single_letter_count(solution, i) for i in ALPHABET]
         counts_seen = [0] * 26
 
         for i in range(5): #loop through greens
@@ -182,20 +60,87 @@ class Predictor(object):
         for i in range(5): #loop through rest
             if rule[i] is None:
                 index = ord(guess[i]) - 97
-                if guess[i] in solution and counts[index] > counts_seen[index]:
+                if guess[i] in solution and counts_true[index] > counts_seen[index]:
                     rule[i] = Hint.YELLOW
+                    counts_seen[index] += 1
                 else: #nothing
                     rule[i] = Hint.BLACK
         
         return rule
+    
+    #shortens self.valid by comparing each hypothetical rule with actual rule
+    #assumes that if we know the solution then we know the rule
+    def update_valid(self, guess, rule):
+        valid_bool = []
+        for test_word in self.valid:
+            test_rule = self.calculate_rule(guess, test_word)
+            valid_bool.append(test_rule == rule)
+        self.valid = self.valid[valid_bool]
 
     #outputs frequency of all remaining valid words
     def get_frequencies(self):
         list = []
         for i in self.valid:
             list.append(zipf_frequency(i, 'en'))
-        return list
+        return pd.DataFrame({"word": self.valid, "frequency": list}).sort_values("frequency", ascending=False)
+    
+    #randomly picks n values in self.valid and omits the rest
+    def reduce_size(self, n):
+        bool = np.array([True] * n + [False] * (len(self.valid) - n))
+        np.random.shuffle(bool)
+        return self.valid[bool]
+    
+    #organizes 3^5 possible rules with a fixed number (0-242), 1-1 mappings
+    def index_from_rule(self, rule):
+        index = 0
+        for i in range(5):
+            index += pow(3, i) * (rule[i].value - 1)
+        return index
 
-    #return frequency chart (of chars) based on self.valid
-    def _compute_frequency_chart(self):
-        return None #to-do
+    #generates rule from index above
+    def rule_from_index(self, index):
+        rule = []
+        for i in range(5):
+            remainder = index % 3
+            index //= 3
+            rule.append(Hint(remainder + 1))
+        return rule
+    
+    #used to find mean size of non-zero bins in an array
+    def mean_size(self, bins):
+        sum = 0
+        count = 0
+        for i in bins:
+            if i > 0:
+                sum += i
+                count += 1
+        return sum / count
+
+    #find the expected size of self.valid after making each guess
+    def expected_valid_size(self, valid = True, word_freq = False):
+        means = []
+        valids = []
+
+        column_name = "E[ w( |v| ) ]" if word_freq else "E( |v| )"
+        if valid:
+            guesses = self.valid
+        else:
+            guesses = [i for i in self.available if i not in self.valid]
+
+        for potential_guess in guesses:
+
+            rule_set = [0] * 243
+
+            for potential_solution in self.valid:
+                rule = self.calculate_rule(potential_guess, potential_solution)
+                index = self.index_from_rule(rule)
+
+                if word_freq:
+                    rule_set[index] += zipf_frequency(potential_solution, 'en')
+                else:
+                    rule_set[index] += 1
+
+            means.append(self.mean_size(rule_set))
+            valids.append(potential_guess in self.valid)
+        
+        return pd.DataFrame({"word": guesses, column_name: means}).sort_values(column_name, ascending=True)

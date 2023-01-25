@@ -1,5 +1,5 @@
 # Wordle
- Class for generating ideal guesses in NYT Wordle game
+Class for generating ideal guesses in NYT Wordle game
 
 We will use the list of valid 5 letter words from:
 https://gist.github.com/dracos/dd0668f281e685bad51479e5acaadb93
